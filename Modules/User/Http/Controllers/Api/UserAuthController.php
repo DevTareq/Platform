@@ -1,0 +1,202 @@
+<?php
+
+namespace Modules\User\Http\Controllers\Api;
+
+use Illuminate\Http\Request;
+use Modules\User\Entities\Sentinel\User;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Auth;
+use Cartalyst\Sentinel\Users\EloquentUser;
+use Modules\User\Entities\UserInterface;
+use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
+use Illuminate\Auth\Authenticatable;
+use Laracasts\Presenter\PresentableTrait;
+use Modules\User\Presenters\UserPresenter;
+use Modules\User\Entities\UserToken;
+use Cartalyst\Sentinel\Laravel\Facades\Activation;
+use Laravel\Passport\HasApiTokens;
+
+/**
+ * Class UserAuthController
+ *
+ * @package Modules\User\Http\Controllers\Api
+ */
+class UserAuthController extends EloquentUser implements UserInterface, AuthenticatableContract
+{
+    use PresentableTrait, Authenticatable, HasApiTokens;
+
+    public $successStatus = 200;
+
+    protected $fillable = [
+        'email',
+        'password',
+        'permissions',
+        'first_name',
+        'last_name',
+    ];
+
+    /**
+     * {@inheritDoc}
+     */
+    protected $loginNames = ['email'];
+
+    protected $presenter = UserPresenter::class;
+
+    public function __construct(array $attributes = [])
+    {
+        $this->loginNames = config('asgard.user.config.login-columns');
+        $this->fillable   = config('asgard.user.config.fillable');
+        if (config()->has('asgard.user.config.presenter')) {
+            $this->presenter = config('asgard.user.config.presenter', UserPresenter::class);
+        }
+        if (config()->has('asgard.user.config.dates')) {
+            $this->dates = config('asgard.user.config.dates', []);
+        }
+        if (config()->has('asgard.user.config.casts')) {
+            $this->casts = config('asgard.user.config.casts', []);
+        }
+
+        parent::__construct($attributes);
+    }
+
+    /**
+     * Handles user login
+     *
+     * @return void
+     */
+    public function login()
+    {
+        if (Auth::attempt(['email' => request('email'), 'password' => request('password')])) {
+
+            $user             = Auth::user();
+            $success['token'] = $user->createToken('my-app')->accessToken;
+
+            return response()->json(['success' => $success], $this->successStatus);
+        } else {
+            return response()->json(['error' => 'Unauthorised'], 401);
+        }
+    }
+
+    /**
+     * Register api
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function register(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name'       => 'required',
+            'email'      => 'required|email',
+            'password'   => 'required',
+            'c_password' => 'required|same:password',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()], 401);
+        }
+        $input             = $request->all();
+        $input['password'] = bcrypt($input['password']);
+        $user              = User::create($input);
+        $success['token']  = $user->createToken('MyApp')->accessToken;
+        $success['name']   = $user->name;
+
+        return response()->json(['success' => $success], $this->successStatus);
+    }
+
+    /**
+     * details api
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function details()
+    {
+        $user = Auth::user();
+
+        return response()->json(['success' => $user], $this->successStatus);
+    }
+
+
+    /**
+     * @inheritdoc
+     */
+    public function hasRoleId($roleId)
+    {
+        return $this->roles()->whereId($roleId)->count() >= 1;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function hasRoleSlug($slug)
+    {
+        return $this->roles()->whereSlug($slug)->count() >= 1;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function hasRoleName($name)
+    {
+        return $this->roles()->whereName($name)->count() >= 1;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function isActivated()
+    {
+        if (Activation::completed($this)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany
+     */
+    public function api_keys()
+    {
+        return $this->hasMany(UserToken::class);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getFirstApiKey()
+    {
+        $userToken = $this->api_keys->first();
+
+        if ($userToken === null) {
+            return '';
+        }
+
+        return $userToken->access_token;
+    }
+
+    public function __call($method, $parameters)
+    {
+        #i: Convert array to dot notation
+        $config = implode('.', ['asgard.user.config.relations', $method]);
+
+        #i: Relation method resolver
+        if (config()->has($config)) {
+            $function = config()->get($config);
+            $bound    = $function->bindTo($this);
+
+            return $bound();
+        }
+
+        #i: No relation found, return the call to parent (Eloquent) to handle it.
+        return parent::__call($method, $parameters);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function hasAccess($permission)
+    {
+        $permissions = $this->getPermissionsInstance();
+
+        return $permissions->hasAccess($permission);
+    }
+}
