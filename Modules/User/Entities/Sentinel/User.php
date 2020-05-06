@@ -12,6 +12,11 @@ use Modules\User\Entities\UserToken;
 use Modules\User\Presenters\UserPresenter;
 use Laravel\Passport\HasApiTokens;
 
+/**
+ * Class User
+ *
+ * @package Modules\User\Entities\Sentinel
+ */
 class User extends EloquentUser implements UserInterface, AuthenticatableContract
 {
     use PresentableTrait, Authenticatable, HasApiTokens;

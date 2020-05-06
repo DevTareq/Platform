@@ -46,6 +46,7 @@ return [
         //            'provider' => 'users',
         //        ],
 
+
         'api' => [
             'driver'   => 'passport',
             'provider' => 'users',
@@ -70,6 +71,7 @@ return [
     */
 
     'providers' => [
+
         'users' => [
             'driver' => 'eloquent',
             'model'  => Modules\User\Entities\Sentinel\User::class,
